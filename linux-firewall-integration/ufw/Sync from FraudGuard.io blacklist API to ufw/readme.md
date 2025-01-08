@@ -19,7 +19,7 @@ This script syncs the custom blacklist from **FraudGuard.io** with **UFW (Uncomp
    Install `jq` if it’s not installed on your system.
 
 2. **FraudGuard.io Credentials**:
-   - Obtain your FraudGuard.io username and password from the [FraudGuard.io website](https://fraudguard.io).
+   - Obtain your FraudGuard.io API key username and password, which are different from your web application credentials.
 
 3. **UFW**:
    - Ensure UFW is installed and active on your server.

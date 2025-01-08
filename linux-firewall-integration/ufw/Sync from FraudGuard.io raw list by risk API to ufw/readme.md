@@ -23,7 +23,7 @@ This script integrates with the **FraudGuard.io Raw IP Lists by Risk API** to bl
    sudo apt-get install jq
 
 2. FraudGuard.io Credentials:
-   - Obtain your FraudGuard.io API Key username and password.
+   - Obtain your FraudGuard.io API key username and password, which are different from your web application credentials.
 
 3. UFW:
    - Ensure UFW is installed and active on your server:
@@ -57,7 +57,6 @@ This script integrates with the **FraudGuard.io Raw IP Lists by Risk API** to bl
 
 ## Notes
 
-- This script focuses on risk-based blocking but can be adapted for threat-based blocking by substituting the API URL with the `Raw IP Lists by Threat` API.
 - The `X-Total-Count` header ensures the script stops when all available IPs have been processed.
 - For more information about risk levels and their use cases, check out our [blog post](https://blog.fraudguard.io/misc/2024/04/06/use-cases-article.html).
 
