@@ -1,6 +1,6 @@
 # UFW Blacklist Sync Script
 
-This script syncs the custom blacklist from **FraudGuard.io** with **UFW (Uncomplicated Firewall)** on your server. It ensures that all IPs or subnets in your FraudGuard.io blacklist are blocked at the firewall level, providing an extra layer of protection for your infrastructure.
+This script syncs the custom blacklist from **FraudGuard.io** with **UFW (Uncomplicated Firewall)** on your server. It ensures that all IPs in your FraudGuard.io blacklist are blocked at the firewall level, providing an extra layer of protection for your infrastructure.
 
 ## Features
 
