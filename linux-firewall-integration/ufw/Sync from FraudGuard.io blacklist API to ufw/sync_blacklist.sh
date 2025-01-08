@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Configuration
-USERNAME="" # Replace with your FraudGuard.io username
-PASSWORD="" # Replace with your FraudGuard.io password
+USERNAME="" # Replace with your FraudGuard.io API Key username
+PASSWORD="" # Replace with your FraudGuard.io API Key password
 API_URL="https://api.fraudguard.io/blacklist"
 LOG_FILE="ufw_sync_blacklist.log"
 OFFSET=0
