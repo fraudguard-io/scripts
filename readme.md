@@ -56,4 +56,4 @@ Stay informed about the latest features and updates from FraudGuard.io:
 
 Thank you for using FraudGuard.io to secure your online operations. 
 
-Sign up for a **14-day free trial** here: [FraudGuard.io Free Trial](https://fraudguard.io).
+Want to learn more, sign up for a **14-day free trial** here: [FraudGuard.io Free Trial](https://fraudguard.io).
