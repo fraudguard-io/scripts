@@ -38,9 +38,13 @@ For questions, troubleshooting, or feature requests, please reach out to us:
 
 We welcome contributions to this repository! If you have a script or integration that uses FraudGuard.io, feel free to submit a pull request. Please follow these guidelines:
 
-1. Ensure your code is well-documented and tested.
-2. Include a README file for any new script or tool, explaining its purpose and usage.
-3. Clearly state dependencies or prerequisites.
+1. **Fork the Repository**: Create your own copy of the repo by clicking the "Fork" button on GitHub.
+2. **Make Your Changes**: Enhance the scripts, fix bugs, or introduce new features.
+3. **Document Your Work**:
+   - Ensure your code is well-documented and tested.
+   - Include a README file for any new script or tool, explaining its purpose and usage.
+   - Clearly state dependencies or prerequisites.
+4. **Submit a Pull Request**: Once your changes are ready, submit a pull request for review. Be sure to include detailed descriptions of the changes you made.
 
 ## License
 
