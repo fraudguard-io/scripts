@@ -16,7 +16,7 @@ This Python script automates the process of fetching high-risk IPs from FraudGua
 - FraudGuard.io API credentials
 - Boto3 (AWS SDK for Python)
 - Requests library
-- Must be a valid FraudGuard.io customer with access to the (Raw List by Risk API)[https://docs.fraudguard.io/#raw-ip-lists-by-risk]
+- Must be a valid FraudGuard.io customer with access to the [Raw List by Risk API](https://docs.fraudguard.io/#raw-ip-lists-by-risk)
 
 ### Install Dependencies
 Run the following command to install dependencies:
