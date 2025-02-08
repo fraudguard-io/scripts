@@ -15,6 +15,7 @@ Current highlights include:
 - **IP Blacklisting and Whitelisting Examples**: Automate IP management using FraudGuard.io's API.
 - **Real-Time Fraud Map Embedding**: Learn how to embed the live map on your website.
 - **Firewall Integration Scripts**: Examples for iptables, ufw, and firewalld.
+- **AWS WAF Integration Scripts**: Examples for AWS WAF IP sets for both regional and cloudfront WAF.
 - **Rate Limiting Demos**: Tools to protect against abuse using FraudGuard.io's Rate Limiting feature.
 - **CLI Tools**: Command-line utilities for managing IP lists and querying FraudGuard.io data.
 
