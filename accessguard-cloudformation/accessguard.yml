@@ -1,0 +1,403 @@
+# AccessGuard docs & setup: https://fraudguard.io/accessguard
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AccessGuard v1 Sync FraudGuard.io whitelist into an Organizations SCP (whitelist-only IAM access).
+  Notes:
+    - SCPs DO NOT apply to the Organizations management account (safe backstop).
+    - Attach at Root OU for inheritance to all member accounts.
+    - Default keeps AWS service principals allowed so workloads continue to run.
+
+Parameters:
+  # ===== Required =====
+  OrgRootId:
+    Type: String
+    Description: |
+      (REQUIRED) AWS Organizations Root OU ID (e.g., r-2xjz). If TargetOuId is empty,
+      the SCP will be attached here.
+  FraudGuardUser:
+    Type: String
+    NoEcho: true
+    Description: |
+      (REQUIRED) FraudGuard API username for Basic Auth when fetching the whitelist.
+  FraudGuardPass:
+    Type: String
+    NoEcho: true
+    Description: |
+      (REQUIRED) FraudGuard API password for Basic Auth when fetching the whitelist.
+
+  # ===== Common optional =====
+  TargetOuId:
+    Type: String
+    Default: ""
+    Description: |
+      (OPTIONAL) OU ID to attach the SCP to (e.g., ou-xxxx-abcdefg).
+      If empty, the SCP attaches to the Root OU given by OrgRootId.
+  PolicyName:
+    Type: String
+    Default: AccessGuard-WhitelistOnly
+    Description: |
+      (OPTIONAL) The name to create or update for the Service Control Policy.
+
+  # ===== Whitelist source & pagination =====
+  WhitelistApiBase:
+    Type: String
+    Default: https://api.fraudguard.io/whitelist
+    Description: |
+      (OPTIONAL, defaults shown) Base URL for FraudGuard whitelist pagination.
+      Lambda will call {WhitelistApiBase}/{offset} with offsets 0, step, 2*step, ...
+      Example: https://api.fraudguard.io/whitelist
+  PageOffsetStep:
+    Type: Number
+    Default: 1000
+    Description: |
+      (OPTIONAL) Offset increment per page. If your API serves 1000 items per page,
+      offsets will be 0, 1000, 2000, ...
+  MaxPages:
+    Type: Number
+    Default: 100
+    Description: |
+      (OPTIONAL) Safety ceiling on number of pages to fetch (prevents infinite loops).
+  MaxCidrs:
+    Type: Number
+    Default: 10000
+    Description: |
+      (OPTIONAL) Hard cap on entries included in the SCP to stay within AWS policy size limits.
+
+  # ===== Exception controls =====
+  AllowAwsServices:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true","false"]
+    Description: |
+      (OPTIONAL; DEFAULT true) If true, the Deny applies only when the principal is NOT
+      an AWS service (aws:PrincipalIsAWSService=false). This keeps AWS services (e.g., Lambda,
+      EC2) functioning even if they lack a source IP context. Set to false only if you want
+      absolute lockdown (high risk for background jobs).
+  BypassPrincipalArns:
+    Type: String
+    Default: ""
+    Description: |
+      (OPTIONAL) Comma-separated list of IAM ARN patterns that bypass the SCP deny regardless
+      of source IP (hard-coded break-glass). Examples:
+        arn:aws:iam::123456789012:role/Admin
+        arn:aws:iam::*:role/SRE-*
+      Leave empty for no ARN-based bypass.
+  BypassTagKey:
+    Type: String
+    Default: ""
+    Description: |
+      (OPTIONAL) Principal tag KEY used for temporary, auditable exceptions (ABAC-style).
+      When set together with BypassTagValue, any principal (user/role) that has this tag key/value
+      will bypass the SCP deny. Example: AccessGuardBypass
+      Leave empty to disable tag-based bypass.
+  BypassTagValue:
+    Type: String
+    Default: ""
+    Description: |
+      (OPTIONAL) Principal tag VALUE used with BypassTagKey. Example: true
+      Effective only if BypassTagKey is set.
+
+  CloudTrailLogGroupName:
+    Type: String
+    Default: ""
+    Description: |
+      (OPTIONAL) Name of the CloudWatch Logs log group where CloudTrail delivers events.
+      Example: /aws/cloudtrail/your-trail
+      If empty, the metric filter & alarm resources are NOT created.
+
+  CreateSCPDeniedAlarm:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true","false"]
+    Description: |
+      (OPTIONAL) If true, create a CloudWatch Alarm on SCP deny count.
+
+  AlarmEmail:
+    Type: String
+    Default: ""
+    Description: |
+      (OPTIONAL) Email address to subscribe to the SNS topic for the alarm.
+      Only used when CreateSCPDeniedAlarm=true. Leave blank to create the topic
+      without a subscription (you can subscribe later).
+
+  # ===== Ops defaults =====
+  ScheduleExpression:
+    Type: String
+    Default: rate(5 minutes)
+    Description: |
+      (OPTIONAL) EventBridge schedule for syncing your whitelist rules to SCP. Examples: rate(5 minutes) or cron(0/2 * * * ? *)
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+    Description: |
+      (OPTIONAL) CloudWatch log retention for the Lambda in days.
+  Mode:
+    Type: String
+    Default: Enforce
+    AllowedValues: [Enforce, DryRun]
+    Description: |
+      (OPTIONAL) DryRun logs the policy but does not create/update/attach it (safe preview).
+
+Conditions:
+  HasTrailLogGroup: !Not [ !Equals [ !Ref CloudTrailLogGroupName, "" ] ]
+  MakeAlarm: !And
+    - !Condition HasTrailLogGroup
+    - !Equals [ !Ref CreateSCPDeniedAlarm, "true" ]
+  AddEmailSub: !And
+    - !Condition MakeAlarm
+    - !Not [ !Equals [ !Ref AlarmEmail, "" ] ]
+
+Resources:
+  AccessGuardRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: AccessGuardOrganizations
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - organizations:ListPolicies
+                  - organizations:ListPoliciesForTarget
+                  - organizations:ListTargetsForPolicy
+                  - organizations:CreatePolicy
+                  - organizations:UpdatePolicy
+                  - organizations:DescribePolicy
+                  - organizations:AttachPolicy
+                Resource: "*"
+
+  AccessGuardLogGroup:
+    Type: AWS::Logs::LogGroup
+    DependsOn: AccessGuardFunction
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AccessGuardFunction}
+      RetentionInDays: !Ref LogRetentionDays
+
+  AccessGuardFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt AccessGuardRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          ORG_ROOT_ID: !Ref OrgRootId
+          TARGET_OU_ID: !Ref TargetOuId
+          POLICY_NAME: !Ref PolicyName
+          FG_USER: !Ref FraudGuardUser
+          FG_PASS: !Ref FraudGuardPass
+          WHITELIST_API_BASE: !Ref WhitelistApiBase
+          PAGE_OFFSET_STEP: !Ref PageOffsetStep
+          MAX_PAGES: !Ref MaxPages
+          MAX_CIDRS: !Ref MaxCidrs
+          MODE: !Ref Mode
+          ALLOW_AWS_SERVICES: !Ref AllowAwsServices
+          BYPASS_PRINCIPAL_ARNS: !Ref BypassPrincipalArns
+          BYPASS_TAG_KEY: !Ref BypassTagKey
+          BYPASS_TAG_VALUE: !Ref BypassTagValue
+      Code:
+        ZipFile: |
+          import json, os, base64, urllib.request, ipaddress, boto3, hashlib
+
+          ORG_ROOT_ID=os.environ["ORG_ROOT_ID"].strip()
+          TARGET_OU_ID=os.environ.get("TARGET_OU_ID","").strip()
+          POLICY_NAME=os.environ["POLICY_NAME"].strip()
+          FG_USER=os.environ["FG_USER"]; FG_PASS=os.environ["FG_PASS"]
+          API_BASE=(os.environ.get("WHITELIST_API_BASE") or os.environ.get("WHITELIST_API_URL") or "https://api.fraudguard.io/whitelist").rstrip("/")
+          STEP=int(os.environ.get("PAGE_OFFSET_STEP","1000"))
+          MAXP=int(os.environ.get("MAX_PAGES","100"))
+          MAX_CIDRS=int(os.environ.get("MAX_CIDRS","10000"))
+          MODE=os.environ.get("MODE","Enforce")
+          ALLOW_SVC=os.environ.get("ALLOW_AWS_SERVICES","true").lower()=="true"
+          BYPASS_ARNS=[a.strip() for a in os.environ.get("BYPASS_PRINCIPAL_ARNS","").split(",") if a.strip()]
+          BYPASS_TAG_KEY=os.environ.get("BYPASS_TAG_KEY","").strip()
+          BYPASS_TAG_VAL=os.environ.get("BYPASS_TAG_VALUE","").strip() or "true"
+
+          org=boto3.client("organizations")
+
+          def _auth():
+              t=base64.b64encode(f"{FG_USER}:{FG_PASS}".encode()).decode()
+              return {"Authorization":f"Basic {t}"}
+
+          def _fetch():
+              all_entries=[]; offset=0; pages=0
+              while pages<MAXP and len(all_entries)<MAX_CIDRS:
+                  url=f"{API_BASE}/{offset}"
+                  req=urllib.request.Request(url, headers=_auth())
+                  with urllib.request.urlopen(req, timeout=20) as resp:
+                      chunk=json.loads(resp.read().decode())
+                  if not chunk: break
+                  for v in chunk:
+                      s=str(v).strip()
+                      try:
+                          if "/" in s:
+                              ipaddress.ip_network(s, strict=False); all_entries.append(s)
+                          else:
+                              ip=ipaddress.ip_address(s)
+                              all_entries.append(f"{s}/32" if ip.version==4 else f"{s}/128")
+                      except ValueError:
+                          continue
+                  pages+=1; offset+=STEP
+                  if len(all_entries)>=MAX_CIDRS: break
+              out=sorted(set(all_entries))
+              return out[:MAX_CIDRS]
+
+          def _conds(allow_list):
+              c={"NotIpAddress":{"aws:SourceIp": allow_list if len(allow_list)>1 else allow_list[0]}}
+              if ALLOW_SVC:
+                  c["Bool"]={"aws:PrincipalIsAWSService":"false"}
+              if BYPASS_ARNS:
+                  c["ArnNotLike"]={"aws:PrincipalArn": BYPASS_ARNS if len(BYPASS_ARNS)>1 else BYPASS_ARNS[0]}
+              if BYPASS_TAG_KEY:
+                  c["StringNotEqualsIfExists"]={f"aws:PrincipalTag/{BYPASS_TAG_KEY}": BYPASS_TAG_VAL}
+              return c
+
+          def _build(cidrs):
+              v4=[c for c in cidrs if ":" not in c]; v6=[c for c in cidrs if ":" in c]
+              st=[]
+              if v4:
+                  st.append({"Sid":"DenyIfNotFromWhitelistedIPv4","Effect":"Deny","Action":"*","Resource":"*","Condition":_conds(v4)})
+              if v6:
+                  st.append({"Sid":"DenyIfNotFromWhitelistedIPv6","Effect":"Deny","Action":"*","Resource":"*","Condition":_conds(v6)})
+              if not st:
+                  st.append({"Sid":"DenyAllNoWhitelist","Effect":"Deny","Action":"*","Resource":"*"})
+              return json.dumps({"Version":"2012-10-17","Statement":st}, separators=(",",":"))
+
+          def _find_policy_id(name):
+              pag=org.get_paginator("list_policies")
+              for page in pag.paginate(Filter="SERVICE_CONTROL_POLICY"):
+                  for p in page.get("Policies",[]):
+                      if p["Name"]==name: return p["Id"]
+              return None
+
+          def _attached(pid,target):
+              pag=org.get_paginator("list_policies_for_target")
+              for page in pag.paginate(TargetId=target, Filter="SERVICE_CONTROL_POLICY"):
+                  for p in page.get("Policies",[]):
+                      if p["Id"]==pid: return True
+              return False
+
+          def handler(event, context):
+              cidrs=_fetch()
+              new_doc=_build(cidrs)
+              target=TARGET_OU_ID if TARGET_OU_ID else ORG_ROOT_ID
+
+              if MODE=="DryRun":
+                  print(json.dumps({"mode":"DryRun","target":target,"entries":len(cidrs),"policy":json.loads(new_doc)}, indent=2))
+                  return {"mode":"DryRun","target":target,"entries":len(cidrs)}
+
+              pid=_find_policy_id(POLICY_NAME)
+              if pid is None:
+                  resp=org.create_policy(Content=new_doc,Description="AccessGuard - whitelist-only IAM access enforced by FraudGuard",Name=POLICY_NAME,Type="SERVICE_CONTROL_POLICY")
+                  pid=resp["Policy"]["PolicySummary"]["Id"]
+              else:
+                  cur=org.describe_policy(PolicyId=pid)["Policy"]["Content"]
+                  if hashlib.sha256(cur.encode()).hexdigest()!=hashlib.sha256(new_doc.encode()).hexdigest():
+                      org.update_policy(PolicyId=pid, Content=new_doc)
+
+              if not _attached(pid,target):
+                  org.attach_policy(PolicyId=pid, TargetId=target)
+
+              # delta logs (best-effort)
+              try:
+                  old=json.loads(cur)["Statement"] if 'cur' in locals() else []
+                  def _extract(ss):
+                      cond=ss.get("Condition",{}).get("NotIpAddress",{}).get("aws:SourceIp",[])
+                      return cond if isinstance(cond, list) else [cond]
+                  old_set=set(sum([_extract(s) for s in old], []))
+                  new_set=set(cidrs)
+                  print(json.dumps({"added":sorted(list(new_set-old_set)),"removed":sorted(list(old_set-new_set)),"entries":len(cidrs)}))
+              except Exception as e:
+                  print(f"delta-log-failed: {e}")
+
+              return {"updated_policy_id":pid,"target":target,"entries":len(cidrs)}
+
+  AccessGuardSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt AccessGuardFunction.Arn
+          Id: AccessGuardTarget
+
+  AccessGuardInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AccessGuardFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AccessGuardSchedule.Arn
+
+  # === Metric Filter that counts AccessGuard (SCP) denials ===
+  AccessGuardSCPDeniedMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Condition: HasTrailLogGroup
+    Properties:
+      LogGroupName: !Ref CloudTrailLogGroupName
+      # CloudTrail in CW Logs is JSON; this pattern matches the SCP explicit deny message.
+      FilterPattern: |-
+        { ($.errorCode = "AccessDenied") && ($.errorMessage = "*explicit deny in a service control policy*") }
+      MetricTransformations:
+        - MetricValue: "1"
+          MetricNamespace: "AccessGuard/Org"
+          MetricName: "SCPDeniedCount"
+          DefaultValue: 0
+
+  # === Optional SNS topic & email for the alarm ===
+  AccessGuardAlertTopic:
+    Type: AWS::SNS::Topic
+    Condition: MakeAlarm
+    Properties:
+      TopicName: accessguard-scp-denied
+
+  AccessGuardAlertSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: AddEmailSub
+    Properties:
+      TopicArn: !Ref AccessGuardAlertTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  # === Optional CloudWatch Alarm on the metric (threshold adjustable) ===
+  AccessGuardSCPDeniedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: MakeAlarm
+    Properties:
+      AlarmName: accessguard-scp-denied
+      AlarmDescription: >
+        Triggers when AccessGuard detects N or more SCP denials within the evaluation period.
+      Namespace: AccessGuard/Org
+      MetricName: SCPDeniedCount
+      Statistic: Sum
+      Period: 60                 # evaluate every 1 minute
+      EvaluationPeriods: 3       # look back over the last 3 minutes (3 datapoints)
+      DatapointsToAlarm: 2       # require 2 of the last 3 datapoints to breach
+      Threshold: 1               # breach when Sum >= 1 in a period
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref AccessGuardAlertTopic
+      OKActions:
+        - !Ref AccessGuardAlertTopic
+
+Outputs:
+  FunctionName:
+    Value: !Ref AccessGuardFunction
+  LogGroup:
+    Value: !Ref AccessGuardLogGroup
+  PolicyNameOut:
+    Value: !Ref PolicyName
