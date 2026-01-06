@@ -14,6 +14,7 @@ Notes:
 - For CSV, the script will try to auto-detect the IP column name (looks for header containing "ip").
 - For JSON lines (NDJSON) or JSON arrays, the script will inject a "fraudguard" field (object) on matched records.
 - For plain text lines, the script appends " | <json>" when enrichment exists.
+- Offline SQLite databases generated from ACE only contain tracked IPs with risk levels 2–5 (untracked IPs are not present).
 """
 
 import argparse
@@ -48,7 +49,7 @@ def open_db(path: str) -> sqlite3.Connection:
 def lookup_ip(conn: sqlite3.Connection, ip: str) -> Optional[Dict]:
     try:
         cur = conn.execute(
-            "SELECT risk, threat, asn, asn_organization, isp, organization, isocode, country, connection_type "
+            "SELECT risk, threat, asn, asn_organization, isp, organization, isocode, country, state, city, latitude, longitude, connection_type, updated_at "
             "FROM attackers_detailed WHERE ip = ? LIMIT 1",
             (ip,),
         )
@@ -236,7 +237,12 @@ def process_text_stream(conn, infile, outfile, stats):
                 f"organization={e.get('organization','')} "
                 f"isocode={e.get('isocode','')} "
                 f"country={e.get('country','')} "
-                f"connection_type={e.get('connection_type','')}"
+                f"state={e.get('state','')} "
+                f"city={e.get('city','')} "
+                f"latitude={e.get('latitude','')} "
+                f"longitude={e.get('longitude','')} "
+                f"connection_type={e.get('connection_type','')} "
+                f"updated_at={e.get('updated_at','')}"
             )
             outfile.write(fg_line.strip() + "\n")
 
@@ -313,7 +319,12 @@ def process_csv(conn, infile, outfile, stats):
         'fraudguard_organization',
         'fraudguard_isocode',
         'fraudguard_country',
-        'fraudguard_connection_type'
+        'fraudguard_state',
+        'fraudguard_city',
+        'fraudguard_latitude',
+        'fraudguard_longitude',
+        'fraudguard_connection_type',
+        'fraudguard_updated_at'
     ]
     writer_fieldnames = fieldnames + add_cols
     writer = csv.DictWriter(outfile, fieldnames=writer_fieldnames, extrasaction='ignore', dialect=dialect)
@@ -354,7 +365,12 @@ def process_csv(conn, infile, outfile, stats):
                 r['fraudguard_organization'] = info.get('organization')
                 r['fraudguard_isocode'] = info.get('isocode')
                 r['fraudguard_country'] = info.get('country')
+                r['fraudguard_state'] = info.get('state')
+                r['fraudguard_city'] = info.get('city')
+                r['fraudguard_latitude'] = info.get('latitude')
+                r['fraudguard_longitude'] = info.get('longitude')
                 r['fraudguard_connection_type'] = info.get('connection_type')
+                r['fraudguard_updated_at'] = info.get('updated_at')
                 stats['matches'] += 1
             else:
                 r['fraudguard_risk'] = ""
@@ -365,7 +381,12 @@ def process_csv(conn, infile, outfile, stats):
                 r['fraudguard_organization'] = ""
                 r['fraudguard_isocode'] = ""
                 r['fraudguard_country'] = ""
+                r['fraudguard_state'] = ""
+                r['fraudguard_city'] = ""
+                r['fraudguard_latitude'] = ""
+                r['fraudguard_longitude'] = ""
                 r['fraudguard_connection_type'] = ""
+                r['fraudguard_updated_at'] = ""
         else:
             r['fraudguard_risk'] = ""
             r['fraudguard_threat'] = ""
@@ -375,7 +396,12 @@ def process_csv(conn, infile, outfile, stats):
             r['fraudguard_organization'] = ""
             r['fraudguard_isocode'] = ""
             r['fraudguard_country'] = ""
+            r['fraudguard_state'] = ""
+            r['fraudguard_city'] = ""
+            r['fraudguard_latitude'] = ""
+            r['fraudguard_longitude'] = ""
             r['fraudguard_connection_type'] = ""
+            r['fraudguard_updated_at'] = ""
         writer.writerow(r)
 
 def process_json_array(conn, infile, outfile, stats):
@@ -407,7 +433,12 @@ def main():
     ap.add_argument("--db", required=True, help="Path to offline SQLite (fg-database.sqlite)")
     ap.add_argument("--input", help="Input file (defaults to stdin)")
     ap.add_argument("--output", help="Output file (defaults to stdout)")
-    ap.add_argument("--min-risk", type=int, default=0, help="Only attach enrichment when risk >= N (default: 0)")
+    ap.add_argument(
+        "--min-risk",
+        type=int,
+        default=2,
+        help="Only attach enrichment when risk >= N (default: 2; ACE exports risks 2–5 only)"
+    )
     args = ap.parse_args()
 
     conn = open_db(args.db)
