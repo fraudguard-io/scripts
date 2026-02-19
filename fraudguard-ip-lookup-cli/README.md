@@ -1,13 +1,5 @@
 # fraudguard-ip-lookup-cli
 
-A tiny CLI for FraudGuard's **Get Specific IP Reputation V2** endpoint.
-
-## Install (recommended: pipx)
-
-```bash
-pipx install fraudguard-ip-lookup-cli
-# fraudguard-ip-lookup-cli
-
 A tiny, script-friendly CLI for FraudGuard's **Get Specific IP Reputation V2** and **Hostname V2** endpoints.
 
 - ✅ Accepts **IPv4**, **IPv6**, and **hostnames**
