@@ -22,7 +22,7 @@ A tiny, script-friendly CLI for FraudGuard's **Get Specific IP Reputation V2** a
 ## Install
 
 ```bash
-pipx install git+https://github.com/fraudguard-io/fraudguard-ip-lookup-cli.git
+pipx install "git+https://github.com/fraudguard-io/scripts.git#egg=fraudguard-ip-lookup-cli&subdirectory=fraudguard-ip-lookup-cli"
 ```
 
 ---
