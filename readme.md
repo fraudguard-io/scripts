@@ -10,14 +10,6 @@ FraudGuard.io provides cutting-edge APIs for IP reputation and threat intelligen
 
 This repository is designed to provide helpful scripts and tools for integrating FraudGuard.io into your workflows. Feel free to explore, adapt, and use as needed!
 
-Current highlights include:
-
-- **IP Blacklisting and Whitelisting Examples**: Automate IP management using FraudGuard.io's API.
-- **Real-Time Fraud Map Embedding**: Learn how to embed the live map on your website.
-- **Firewall Integration Scripts**: Examples for iptables, ufw, and firewalld.
-- **AWS WAF Integration Scripts**: Examples for AWS WAF IP sets for both regional and cloudfront WAF.
-- **Rate Limiting Demos**: Tools to protect against abuse using FraudGuard.io's Rate Limiting feature.
-- **CLI Tools**: Command-line utilities for managing IP lists and querying FraudGuard.io data.
 
 ## Getting Started
 
@@ -32,7 +24,7 @@ To get started with any script in this repository:
 For questions, troubleshooting, or feature requests, please reach out to us:
 
 - **Email**: [hello@fraudguard.io](mailto:hello@fraudguard.io)
-- **Documentation**: [FraudGuard.io Docs](https://docs.fraudguard.io)
+- **API Documentation**: [FraudGuard.io Docs](https://docs.fraudguard.io)
 - **Blog**: [FraudGuard.io Blog](https://blog.fraudguard.io)
 
 ## Contribution Guidelines
